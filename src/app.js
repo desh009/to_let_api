@@ -2,6 +2,7 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { authRouter } from './routes/auth.js';
 import { listingsRouter } from './routes/listings.js';
 
 const app = express();
@@ -22,10 +23,7 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
-});
-
+app.use('/api/auth', authRouter);
 app.use('/api/listings', listingsRouter);
 
 app.use((req, res) => {
@@ -34,7 +32,9 @@ app.use((req, res) => {
 
 app.use((error, _req, res, _next) => {
   console.error(error);
-  res.status(500).json({ error: 'An unexpected server error occurred.' });
+  res.status(error.statusCode || 500).json({
+    error: error.statusCode ? error.message : 'An unexpected server error occurred.',
+  });
 });
 
 export { app };

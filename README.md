@@ -1,6 +1,6 @@
 # To-Let API
 
-Standalone Node.js API for the Flutter **to_let_app_** project. It centralizes listing creation, verifies Firebase users, stores listings in Firestore, and broadcasts new-listing notifications through Firebase Cloud Messaging (FCM).
+Standalone Node.js API for the Flutter **to_let_app_** project. It handles email authentication, password reset, listing creation, and Firebase Cloud Messaging (FCM) notifications.
 
 ## What it replaces
 
@@ -25,11 +25,30 @@ The Flutter app currently writes directly to the `properties` Firestore collecti
    curl http://localhost:3000/health
    ```
 
-## API endpoints
+## Authentication endpoints
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `GET` | `/health` | Health check |
+| `POST` | `/api/auth/register` | Create an email/password account |
+| `POST` | `/api/auth/login` | Sign in with email and password |
+| `POST` | `/api/auth/forgot-password` | Send Firebase password-reset email |
+
+All three endpoints use Firebase Authentication. Add `FIREBASE_WEB_API_KEY` in `.env` or Vercel Environment Variables before using them.
+
+Example registration body:
+
+```json
+{
+  "name": "Rahim Ahmed",
+  "email": "rahim@gmail.com",
+  "password": "a-secure-password"
+}
+```
+
+## Listing endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
 | `GET` | `/api/listings` | Fetch up to 20 latest listings (`?limit=1-50`) |
 | `GET` | `/api/listings/:id` | Fetch one listing |
 | `POST` | `/api/listings` | Create a listing and notify `all_users` |
@@ -69,13 +88,14 @@ Example body:
 
 ## Deploy to Vercel
 
-The project is configured for Vercel serverless functions. The `api/index.js` entry point exports the Express app and `vercel.json` routes requests such as `/health` and `/api/listings` to it.
+The project is configured for Vercel serverless functions. The `api/index.js` entry point exports the Express app and `vercel.json` routes requests such as `/api/auth/login` and `/api/listings` to it.
 
 1. Push this `to_let_api` folder to a GitHub repository, then import it into Vercel; or run `npx vercel` in this folder and follow the login prompts.
 2. In **Vercel → Project → Settings → Environment Variables**, add the values from `.env.example`. At minimum, set:
    - `FIREBASE_SERVICE_ACCOUNT_JSON` — the complete service-account JSON on one line, marked **Sensitive**;
+   - `FIREBASE_WEB_API_KEY` — Firebase Console → Project settings → General → Web API Key;
    - `FIREBASE_PROJECT_ID` — your Firebase project ID;
    - `APP_ORIGINS` — your production web origin, if you build the Flutter web app.
-3. Deploy and open `https://your-project.vercel.app/health`. It should return `{ "status": "ok" }`.
+3. Deploy, then test a real API endpoint such as `POST https://your-project.vercel.app/api/auth/login`.
 
 Do not commit a Firebase service-account JSON file or `.env` to Git.
