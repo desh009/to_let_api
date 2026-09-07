@@ -3,6 +3,7 @@ import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { authRouter } from './routes/auth.js';
+import { supabase } from './config/supabase.js';
 import { listingsRouter } from './routes/listings.js';
 
 const app = express();
@@ -25,6 +26,32 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
+});
+
+app.get('/api/flats', async (_req, res, next) => {
+  try {
+    const { data, error } = await supabase
+      .from('to_let_api')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    return res.json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
 });
 
 app.use('/api/auth', authRouter);
