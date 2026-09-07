@@ -12,13 +12,20 @@ const allowedOrigins = (process.env.APP_ORIGINS || '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
+  throw new Error('APP_ORIGINS must list allowed browser origins in production.');
+}
+
 app.use(helmet());
+app.set('trust proxy', 1);
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    return callback(new Error('This origin is not allowed by CORS.'));
+    const error = new Error('This origin is not allowed by CORS.');
+    error.statusCode = 403;
+    return callback(error);
   },
 }));
 app.use(express.json({ limit: '1mb' }));

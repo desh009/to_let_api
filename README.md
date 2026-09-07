@@ -10,9 +10,11 @@ Node.js REST API for the Flutter To-Let app. It uses **Supabase only**: email/pa
    SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
    SUPABASE_KEY=YOUR_SERVICE_ROLE_KEY
    PORT=3000
+   APP_ORIGINS=https://YOUR_FRONTEND_DOMAIN
+   AUTH_RATE_LIMIT_MAX=10
    ```
 
-2. In Supabase Dashboard, enable **Email** under Authentication → Providers. Add your app's password-reset URL to Authentication → URL Configuration, then set it as `PASSWORD_RESET_REDIRECT_URL` if needed.
+2. In Supabase Dashboard, enable **Email** and **Confirm email** under Authentication → Providers. Add your app's password-reset URL to Authentication → URL Configuration, then set it as `PASSWORD_RESET_REDIRECT_URL` if needed. Configure Supabase's password policy to match the API: at least 12 characters with uppercase, lowercase, and a number.
 3. Run [supabase/schema.sql](supabase/schema.sql) in Supabase Dashboard → SQL Editor. This creates the `to_let_api` listings table.
 4. Start the server:
 
@@ -27,7 +29,7 @@ Node.js REST API for the Flutter To-Let app. It uses **Supabase only**: email/pa
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/auth/register` | Create an email/password account |
+| `POST` | `/api/auth/register` | Create an email/password account and send confirmation email |
 | `POST` | `/api/auth/login` | Sign in with email and password |
 | `POST` | `/api/auth/forgot-password` | Send a Supabase password-reset email |
 | `POST` | `/api/auth/reset-password` | Set a new password using a recovery access token |
@@ -42,13 +44,13 @@ Registration body:
 }
 ```
 
-Login returns `idToken` (the Supabase access token), `refreshToken`, and user data. Use `idToken` for protected endpoints:
+Registration returns a confirmation message, not a session. The user must confirm their email, then log in. Login returns `idToken` (the Supabase access token), `refreshToken`, and user data. Use `idToken` for protected endpoints:
 
 ```http
 Authorization: Bearer <supabase-access-token>
 ```
 
-To reset a password, call `forgot-password` with `{ "email": "rahim@gmail.com" }`. After the user opens the Supabase recovery link, send the recovery access token as the Bearer token to `reset-password` with:
+To reset a password, call `forgot-password` with `{ "email": "rahim@gmail.com" }`. After the user opens the Supabase recovery link, send its authenticated recovery-session access token as the Bearer token to `reset-password` with:
 
 ```json
 { "password": "new-secure-password" }
@@ -65,4 +67,4 @@ To reset a password, call `forgot-password` with `{ "email": "rahim@gmail.com" }
 
 ## Deploy to Vercel
 
-Add `SUPABASE_URL`, `SUPABASE_KEY`, `PORT`, and optionally `PASSWORD_RESET_REDIRECT_URL` under Vercel → Project → Settings → Environment Variables. Mark the service-role key as sensitive. Do not commit `.env`.
+Add `SUPABASE_URL`, `SUPABASE_KEY`, `PORT`, `APP_ORIGINS`, and optionally `PASSWORD_RESET_REDIRECT_URL` under Vercel → Project → Settings → Environment Variables. Mark the service-role key as sensitive. Do not commit `.env`. `APP_ORIGINS` is mandatory in production and must not include a wildcard.

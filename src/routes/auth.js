@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import {
   forgotPasswordSchema,
   loginSchema,
@@ -9,6 +10,16 @@ import { requireSupabaseUser } from '../middleware/auth.js';
 import { supabase } from '../config/supabase.js';
 
 const authRouter = Router();
+
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: Number(process.env.AUTH_RATE_LIMIT_MAX) || 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts. Please try again later.' },
+});
+
+authRouter.use(authRateLimit);
 
 function validationError(res, parsed) {
   return res.status(422).json({
@@ -33,28 +44,41 @@ function authResponse(session) {
   };
 }
 
+function isDuplicateEmailError(error) {
+  const code = String(error?.code || '').toLowerCase();
+  const message = String(error?.message || '').toLowerCase();
+  return code === 'email_exists'
+    || code === 'user_already_exists'
+    || message.includes('already registered')
+    || message.includes('already exists');
+}
+
 authRouter.post('/register', async (req, res, next) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return validationError(res, parsed);
 
   try {
-    const { error: createError } = await supabase.auth.admin.createUser({
+    const { data, error: signUpError } = await supabase.auth.signUp({
       email: parsed.data.email,
       password: parsed.data.password,
-      email_confirm: true,
-      user_metadata: { name: parsed.data.name },
+      options: { data: { name: parsed.data.name } },
     });
-    if (createError) throw createError;
+    if (signUpError || !data.user) {
+      throw signUpError || new Error('Unable to create an account.');
+    }
 
-    const { data, error: loginError } = await supabase.auth.signInWithPassword({
-      email: parsed.data.email,
-      password: parsed.data.password,
+    return res.status(201).json({
+      data: {
+        user: {
+          uid: data.user.id,
+          email: data.user.email,
+          name: data.user.user_metadata?.name || null,
+        },
+        message: 'Check your email and confirm your account before logging in.',
+      },
     });
-    if (loginError || !data.session) throw loginError || new Error('Unable to create a session.');
-
-    return res.status(201).json({ data: authResponse(data.session) });
   } catch (error) {
-    if (error.code === 'email_exists' || error.code === 'user_already_exists') {
+    if (isDuplicateEmailError(error)) {
       return res.status(409).json({ error: 'An account already exists with this email.' });
     }
     return next(error);
@@ -76,6 +100,9 @@ authRouter.post('/login', async (req, res, next) => {
     if (error.code === 'invalid_credentials') {
       return res.status(401).json({ error: 'Email or password is incorrect.' });
     }
+    if (error.code === 'email_not_confirmed') {
+      return res.status(403).json({ error: 'Please confirm your email before logging in.' });
+    }
     return next(error);
   }
 });
@@ -88,7 +115,8 @@ authRouter.post('/forgot-password', async (req, res, next) => {
     const options = process.env.PASSWORD_RESET_REDIRECT_URL
       ? { redirectTo: process.env.PASSWORD_RESET_REDIRECT_URL }
       : undefined;
-    await supabase.auth.resetPasswordForEmail(parsed.data.email, options);
+    const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, options);
+    if (error) throw error;
   } catch (error) {
     return next(error);
   }
