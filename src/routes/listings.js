@@ -1,27 +1,22 @@
 import { Router } from 'express';
-import { FieldValue } from 'firebase-admin/firestore';
-import { initializeFirebase } from '../config/firebase.js';
-import { requireFirebaseUser } from '../middleware/auth.js';
+import { flatsTable, supabase } from '../config/supabase.js';
+import { requireSupabaseUser } from '../middleware/auth.js';
 import { createListingSchema } from '../schemas/listing.js';
 
 const listingsRouter = Router();
 
-function toListing(id, data) {
-  return { id, ...data };
-}
-
 listingsRouter.get('/', async (req, res, next) => {
   try {
-    const { db } = initializeFirebase();
     const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
-    const snapshot = await db
-      .collection('properties')
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get();
+    const { data, error } = await supabase
+      .from(flatsTable)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
 
     return res.json({
-      data: snapshot.docs.map((doc) => toListing(doc.id, doc.data())),
+      data,
     });
   } catch (error) {
     return next(error);
@@ -30,20 +25,24 @@ listingsRouter.get('/', async (req, res, next) => {
 
 listingsRouter.get('/:id', async (req, res, next) => {
   try {
-    const { db } = initializeFirebase();
-    const document = await db.collection('properties').doc(req.params.id).get();
+    const { data, error } = await supabase
+      .from(flatsTable)
+      .select('*')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (error) throw error;
 
-    if (!document.exists) {
+    if (!data) {
       return res.status(404).json({ error: 'Listing not found.' });
     }
 
-    return res.json({ data: toListing(document.id, document.data()) });
+    return res.json({ data });
   } catch (error) {
     return next(error);
   }
 });
 
-listingsRouter.post('/', requireFirebaseUser, async (req, res, next) => {
+listingsRouter.post('/', requireSupabaseUser, async (req, res, next) => {
   const parsed = createListingSchema.safeParse(req.body);
 
   if (!parsed.success) {
@@ -57,38 +56,22 @@ listingsRouter.post('/', requireFirebaseUser, async (req, res, next) => {
   }
 
   try {
-    const { db, messaging } = initializeFirebase();
-    const listingReference = db.collection('properties').doc();
     const listing = {
       ...parsed.data,
-      ownerId: req.user.uid,
-      ownerName: req.user.name || null,
-      ownerEmail: req.user.email || null,
-      isVerified: false,
-      isAvailable: true,
-      isFeatured: false,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+      image_url: parsed.data.images[0],
+      owner_id: req.user.id,
+      owner_name: req.user.user_metadata?.name || null,
+      owner_email: req.user.email || null,
     };
-
-    await listingReference.set(listing);
-
-    // New listings are public, so every subscribed app may receive this alert.
-    await messaging.send({
-      topic: 'all_users',
-      notification: {
-        title: 'New Property Listed! 🏠',
-        body: `Check out "${listing.title}" in ${listing.location}.`,
-      },
-      data: {
-        listingId: listingReference.id,
-        type: 'new_listing',
-      },
-      android: { priority: 'high' },
-    });
+    const { data, error } = await supabase
+      .from(flatsTable)
+      .insert(listing)
+      .select()
+      .single();
+    if (error) throw error;
 
     return res.status(201).json({
-      data: { id: listingReference.id, ...listing },
+      data,
     });
   } catch (error) {
     return next(error);

@@ -14,3 +14,7 @@ export const loginSchema = z.object({
 });
 
 export const forgotPasswordSchema = z.object({ email });
+
+export const resetPasswordSchema = z.object({
+  password: z.string().min(8).max(128),
+});

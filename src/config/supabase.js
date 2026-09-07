@@ -14,4 +14,6 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
   },
 });
 
-export { supabase };
+const flatsTable = process.env.SUPABASE_FLATS_TABLE || 'to_let_api';
+
+export { flatsTable, supabase };

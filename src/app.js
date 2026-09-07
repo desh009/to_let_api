@@ -3,7 +3,7 @@ import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { authRouter } from './routes/auth.js';
-import { supabase } from './config/supabase.js';
+import { flatsTable, supabase } from './config/supabase.js';
 import { listingsRouter } from './routes/listings.js';
 
 const app = express();
@@ -31,7 +31,7 @@ app.get('/health', (_req, res) => {
 app.get('/api/flats', async (_req, res, next) => {
   try {
     const { data, error } = await supabase
-      .from('to_let_api')
+      .from(flatsTable)
       .select('*')
       .order('created_at', { ascending: false });
 
