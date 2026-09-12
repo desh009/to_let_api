@@ -160,6 +160,7 @@ listingsRouter.get('/:id', async (req, res, next) => {
   }
 });
 
+// Create a new listing (Post Listing)
 listingsRouter.post('/', requireSupabaseUser, async (req, res, next) => {
   const parsed = createListingSchema.safeParse(req.body);
 
@@ -175,12 +176,24 @@ listingsRouter.post('/', requireSupabaseUser, async (req, res, next) => {
 
   try {
     const listing = {
-      ...parsed.data,
+      title: parsed.data.title,
+      location: parsed.data.location,
+      city: parsed.data.city || 'Khulna',
+      area: parsed.data.area || null,
+      price: parsed.data.price,
+      bedrooms: parsed.data.bedrooms,
+      bathrooms: parsed.data.bathrooms,
+      description: parsed.data.description || '',
+      contact_number: parsed.data.contactNumber,
+      images: parsed.data.images,
       image_url: parsed.data.images[0],
+      category: parsed.data.category,
+      furnishing: parsed.data.furnishing || 'Unfurnished',
+      availability: parsed.data.availability || 'Available now',
       available_from: parsed.data.availableFrom || null,
       square_feet: parsed.data.squareFeet || null,
-      contact_number: parsed.data.contactNumber,
-      is_direct_owner: parsed.data.isDirectOwner,
+      amenities: parsed.data.amenities || {},
+      is_direct_owner: parsed.data.isDirectOwner !== false, // Default true from screen
       owner_id: req.user.id,
       owner_name: req.user.user_metadata?.name || null,
       owner_email: req.user.email || null,
@@ -191,10 +204,146 @@ listingsRouter.post('/', requireSupabaseUser, async (req, res, next) => {
       .insert(listing)
       .select()
       .single();
+    
     if (error) throw error;
 
     return res.status(201).json({
+      success: true,
+      message: 'Listing created successfully. It will be reviewed and live within 2 hours.',
       data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Update an existing listing
+listingsRouter.patch('/:id', requireSupabaseUser, async (req, res, next) => {
+  try {
+    // First, check if the listing exists and belongs to the user
+    const { data: existing, error: fetchError } = await supabase
+      .from(flatsTable)
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('owner_id', req.user.id)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+
+    if (!existing) {
+      return res.status(404).json({ 
+        error: 'Listing not found or you do not have permission to edit it.' 
+      });
+    }
+
+    const parsed = createListingSchema.partial().safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(422).json({
+        error: 'Invalid listing data.',
+        details: parsed.error.issues.map((issue) => ({
+          field: issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
+    }
+
+    const updates = {};
+    
+    if (parsed.data.title) updates.title = parsed.data.title;
+    if (parsed.data.location) updates.location = parsed.data.location;
+    if (parsed.data.city) updates.city = parsed.data.city;
+    if (parsed.data.area) updates.area = parsed.data.area;
+    if (parsed.data.price !== undefined) updates.price = parsed.data.price;
+    if (parsed.data.bedrooms !== undefined) updates.bedrooms = parsed.data.bedrooms;
+    if (parsed.data.bathrooms !== undefined) updates.bathrooms = parsed.data.bathrooms;
+    if (parsed.data.description) updates.description = parsed.data.description;
+    if (parsed.data.contactNumber) updates.contact_number = parsed.data.contactNumber;
+    if (parsed.data.images) {
+      updates.images = parsed.data.images;
+      updates.image_url = parsed.data.images[0];
+    }
+    if (parsed.data.category) updates.category = parsed.data.category;
+    if (parsed.data.furnishing) updates.furnishing = parsed.data.furnishing;
+    if (parsed.data.availability) updates.availability = parsed.data.availability;
+    if (parsed.data.availableFrom) updates.available_from = parsed.data.availableFrom;
+    if (parsed.data.squareFeet) updates.square_feet = parsed.data.squareFeet;
+    if (parsed.data.amenities) updates.amenities = parsed.data.amenities;
+    if (parsed.data.isDirectOwner !== undefined) updates.is_direct_owner = parsed.data.isDirectOwner;
+
+    updates.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from(flatsTable)
+      .update(updates)
+      .eq('id', req.params.id)
+      .eq('owner_id', req.user.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return res.json({
+      success: true,
+      message: 'Listing updated successfully.',
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Delete a listing
+listingsRouter.delete('/:id', requireSupabaseUser, async (req, res, next) => {
+  try {
+    const { data, error } = await supabase
+      .from(flatsTable)
+      .delete()
+      .eq('id', req.params.id)
+      .eq('owner_id', req.user.id)
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data) {
+      return res.status(404).json({ 
+        error: 'Listing not found or you do not have permission to delete it.' 
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Listing deleted successfully.',
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Get user's own listings
+listingsRouter.get('/my/listings', requireSupabaseUser, async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+    const { data, error, count } = await supabase
+      .from(flatsTable)
+      .select('*', { count: 'exact' })
+      .eq('owner_id', req.user.id)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    return res.json({
+      data,
+      pagination: {
+        total: count,
+        offset,
+        limit,
+        hasMore: count > offset + limit
+      }
     });
   } catch (error) {
     return next(error);

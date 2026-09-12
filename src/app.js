@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import { authRouter } from './routes/auth.js';
 import { flatsTable, supabase } from './config/supabase.js';
 import { listingsRouter } from './routes/listings.js';
+import { uploadRouter } from './routes/upload.js';
 
 const app = express();
 const allowedOrigins = (process.env.APP_ORIGINS || '')
@@ -21,7 +22,7 @@ app.use(cors({
     return callback(new Error('This origin is not allowed by CORS.'));
   },
 }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '10mb' })); // Increased limit for image uploads
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 app.get('/health', (_req, res) => {
@@ -56,6 +57,7 @@ app.get('/api/flats', async (_req, res, next) => {
 
 app.use('/api/auth', authRouter);
 app.use('/api/listings', listingsRouter);
+app.use('/api/upload', uploadRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found.' });
