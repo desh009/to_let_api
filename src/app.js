@@ -6,6 +6,7 @@ import { authRouter } from './routes/auth.js';
 import { flatsTable, supabase } from './config/supabase.js';
 import { listingsRouter } from './routes/listings.js';
 import { uploadRouter } from './routes/upload.js';
+import { messagesRouter } from './routes/messages.js';
 
 const app = express();
 const allowedOrigins = (process.env.APP_ORIGINS || '')
@@ -58,6 +59,7 @@ app.get('/api/flats', async (_req, res, next) => {
 app.use('/api/auth', authRouter);
 app.use('/api/listings', listingsRouter);
 app.use('/api/upload', uploadRouter);
+app.use('/api/messages', messagesRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found.' });

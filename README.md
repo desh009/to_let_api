@@ -9,6 +9,10 @@ Node.js REST API for the Flutter/React Native To-Let app. It uses **Supabase** f
 - ✅ Image upload to Supabase Storage
 - ✅ Create, Read, Update, Delete listings
 - ✅ User-specific listing management
+- ✅ **Realtime chat & messaging system**
+- ✅ **One-on-one conversations with property owners**
+- ✅ **Read receipts and unread tracking**
+- ✅ **Supabase Realtime integration for instant messaging**
 - ✅ Comprehensive validation with Zod schemas
 - ✅ Pagination support
 
@@ -48,7 +52,12 @@ PASSWORD_RESET_REDIRECT_URL=your-app://reset-password
    -- See API_POST_LISTING_DOCUMENTATION.md for complete storage policies
    ```
 
-4. **Load Sample Data (Optional):**
+4. **Setup Messaging Tables:**
+   - Run `supabase/messages-schema.sql` in Supabase SQL Editor
+   - This creates conversations, messages tables with RLS and triggers
+   - Enables Supabase Realtime for instant messaging
+
+5. **Load Sample Data (Optional):**
    - Run `sample-data.sql` for test data
 
 ### 3. Install Dependencies & Start
@@ -116,6 +125,34 @@ Authorization: Bearer <supabase-access-token>
 | `POST` | `/api/upload/images` | Upload images (base64) | ✅ |
 | `POST` | `/api/upload/images/presigned-url` | Get presigned upload URL | ✅ |
 | `DELETE` | `/api/upload/images` | Delete uploaded images | ✅ |
+
+---
+
+## 💬 Realtime Chat/Messaging Endpoints
+
+### Conversations
+| Method | Endpoint | Purpose | Auth Required |
+| --- | --- | --- | --- |
+| `GET` | `/api/messages/conversations` | Get all conversations | ✅ |
+| `POST` | `/api/messages/conversations` | Create/get conversation | ✅ |
+| `GET` | `/api/messages/conversations/:id` | Get conversation details | ✅ |
+
+### Messages
+| Method | Endpoint | Purpose | Auth Required |
+| --- | --- | --- | --- |
+| `GET` | `/api/messages/conversations/:id/messages` | Get messages | ✅ |
+| `POST` | `/api/messages/send` | Send message | ✅ |
+| `POST` | `/api/messages/mark-as-read` | Mark as read | ✅ |
+| `GET` | `/api/messages/unread-count` | Get total unread | ✅ |
+| `DELETE` | `/api/messages/:id` | Delete message | ✅ |
+| `POST` | `/api/messages/conversations/:id/block` | Block/unblock | ✅ |
+
+**Features:**
+- ⚡ Real-time message delivery via Supabase Realtime
+- 📱 Read receipts (✓✓)
+- 🔔 Unread message tracking
+- 🚫 Block/unblock conversations
+- 💬 One-on-one chats linked to property listings
 
 ---
 
@@ -204,11 +241,14 @@ For detailed API documentation, see:
 - **[API_COMPLETE_GUIDE.md](API_COMPLETE_GUIDE.md)** - Complete overview of all APIs
 - **[API_FILTER_DOCUMENTATION.md](API_FILTER_DOCUMENTATION.md)** - Filter & search API details
 - **[API_POST_LISTING_DOCUMENTATION.md](API_POST_LISTING_DOCUMENTATION.md)** - Create & manage listings
-- **[test-api.md](test-api.md)** - Testing guide
+- **[API_MESSAGES_DOCUMENTATION.md](API_MESSAGES_DOCUMENTATION.md)** - Realtime chat/messaging API
+- **[MESSAGES_API_SUMMARY.md](MESSAGES_API_SUMMARY.md)** - Quick messaging reference
 
 ### React Native Components
 - **[FilterScreen.jsx](FilterScreen.jsx)** - Property filter implementation
 - **[PostListingScreen.jsx](PostListingScreen.jsx)** - Create listing implementation
+- **[MessagesScreen.jsx](MessagesScreen.jsx)** - Messages list with realtime updates
+- **[ChatScreen.jsx](ChatScreen.jsx)** - One-on-one chat with instant messaging
 
 ---
 
@@ -226,12 +266,14 @@ to_let_api/
 │   ├── routes/
 │   │   ├── auth.js            # Auth endpoints
 │   │   ├── listings.js        # Listing CRUD & filters
-│   │   └── upload.js          # Image upload endpoints
+│   │   ├── upload.js          # Image upload endpoints
+│   │   └── messages.js        # Chat/messaging endpoints ⚡
 │   └── schemas/
 │       ├── auth.js            # Auth validation schemas
 │       └── listing.js         # Listing validation schemas
 ├── supabase/
-│   └── schema.sql             # Database schema
+│   ├── schema.sql             # Listings database schema
+│   └── messages-schema.sql    # Chat/messaging schema ⚡
 ├── sample-data.sql            # Test data
 ├── .env.example               # Environment template
 └── package.json               # Dependencies
