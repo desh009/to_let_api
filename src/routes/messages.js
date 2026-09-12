@@ -7,9 +7,20 @@ const messagesRouter = Router();
 
 // Validation schemas
 const createConversationSchema = z.object({
-  listingId: z.coerce.number().int().positive(),
-  sellerId: z.string().uuid(),
-});
+  listingId: z.coerce.number().int().positive().optional(),
+  sellerId: z.string().uuid().optional(),
+  otherUserId: z.string().uuid().optional(), // For direct messages
+}).refine(
+  (data) => {
+    // Either provide listingId + sellerId OR just otherUserId
+    const hasListingData = data.listingId && data.sellerId;
+    const hasDirectData = data.otherUserId;
+    return hasListingData || hasDirectData;
+  },
+  {
+    message: 'Either provide listingId + sellerId for property-based chat, or otherUserId for direct message',
+  }
+);
 
 const sendMessageSchema = z.object({
   conversationId: z.string().uuid(),
@@ -117,6 +128,7 @@ messagesRouter.get('/conversations', requireSupabaseUser, async (req, res, next)
 /**
  * POST /api/messages/conversations
  * Create or get existing conversation
+ * Supports both listing-based and direct messaging
  */
 messagesRouter.post('/conversations', requireSupabaseUser, async (req, res, next) => {
   try {
@@ -133,45 +145,89 @@ messagesRouter.post('/conversations', requireSupabaseUser, async (req, res, next
       });
     }
 
-    const { listingId, sellerId } = parsed.data;
+    const { listingId, sellerId, otherUserId } = parsed.data;
 
-    // Verify listing exists
-    const { data: listing, error: listingError } = await supabase
-      .from('to_let_api')
-      .select('id, owner_id')
-      .eq('id', listingId)
-      .single();
+    // Case 1: Direct message (no listing)
+    if (otherUserId) {
+      // User cannot message themselves
+      if (userId === otherUserId) {
+        return res.status(400).json({ error: 'Cannot create conversation with yourself.' });
+      }
 
-    if (listingError || !listing) {
-      return res.status(404).json({ error: 'Listing not found.' });
+      // Call the database function for direct conversation
+      const { data: conversationId, error } = await supabase.rpc('get_or_create_conversation', {
+        p_listing_id: null,
+        p_buyer_id: null,
+        p_seller_id: null,
+        p_user1_id: userId,
+        p_user2_id: otherUserId,
+      });
+
+      if (error) throw error;
+
+      // Fetch the conversation details
+      const { data: conversation, error: fetchError } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('id', conversationId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      return res.status(201).json({
+        success: true,
+        message: 'Direct conversation created/retrieved.',
+        data: conversation,
+      });
     }
 
-    // User cannot message themselves
-    if (userId === sellerId) {
-      return res.status(400).json({ error: 'Cannot create conversation with yourself.' });
+    // Case 2: Listing-based conversation
+    if (listingId && sellerId) {
+      // Verify listing exists
+      const { data: listing, error: listingError } = await supabase
+        .from('to_let_api')
+        .select('id, owner_id')
+        .eq('id', listingId)
+        .single();
+
+      if (listingError || !listing) {
+        return res.status(404).json({ error: 'Listing not found.' });
+      }
+
+      // User cannot message themselves
+      if (userId === sellerId) {
+        return res.status(400).json({ error: 'Cannot create conversation with yourself.' });
+      }
+
+      // Call the database function to get or create conversation
+      const { data: conversationId, error } = await supabase.rpc('get_or_create_conversation', {
+        p_listing_id: listingId,
+        p_buyer_id: userId,
+        p_seller_id: sellerId,
+        p_user1_id: null,
+        p_user2_id: null,
+      });
+
+      if (error) throw error;
+
+      // Fetch the conversation details
+      const { data: conversation, error: fetchError } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('id', conversationId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      return res.status(201).json({
+        success: true,
+        message: 'Listing conversation created/retrieved.',
+        data: conversation,
+      });
     }
 
-    // Call the database function to get or create conversation
-    const { data: conversationId, error } = await supabase.rpc('get_or_create_conversation', {
-      p_listing_id: listingId,
-      p_buyer_id: userId,
-      p_seller_id: sellerId,
-    });
-
-    if (error) throw error;
-
-    // Fetch the conversation details
-    const { data: conversation, error: fetchError } = await supabase
-      .from('conversations')
-      .select('*')
-      .eq('id', conversationId)
-      .single();
-
-    if (fetchError) throw fetchError;
-
-    return res.status(201).json({
-      success: true,
-      data: conversation,
+    return res.status(400).json({
+      error: 'Invalid request. Provide either listingId + sellerId or otherUserId.',
     });
   } catch (error) {
     console.error('Create conversation error:', error);
@@ -450,6 +506,56 @@ messagesRouter.get('/unread-count', requireSupabaseUser, async (req, res, next) 
     });
   } catch (error) {
     console.error('Get unread count error:', error);
+    return next(error);
+  }
+});
+
+/**
+ * GET /api/messages/users/search
+ * Search users to start direct conversation
+ */
+messagesRouter.get('/users/search', requireSupabaseUser, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const query = req.query.q || '';
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+
+    if (query.length < 2) {
+      return res.status(400).json({
+        error: 'Search query must be at least 2 characters.',
+      });
+    }
+
+    // Search users by name or email
+    // Note: This requires admin access to auth.users
+    const { data: { users }, error } = await supabase.auth.admin.listUsers();
+
+    if (error) throw error;
+
+    // Filter users based on query
+    const filteredUsers = users
+      .filter((user) => {
+        if (user.id === userId) return false; // Exclude self
+        
+        const name = user.user_metadata?.name?.toLowerCase() || '';
+        const email = user.email?.toLowerCase() || '';
+        const searchQuery = query.toLowerCase();
+        
+        return name.includes(searchQuery) || email.includes(searchQuery);
+      })
+      .slice(0, limit)
+      .map((user) => ({
+        id: user.id,
+        name: user.user_metadata?.name || 'User',
+        email: user.email,
+        createdAt: user.created_at,
+      }));
+
+    return res.json({
+      data: filteredUsers,
+    });
+  } catch (error) {
+    console.error('Search users error:', error);
     return next(error);
   }
 });

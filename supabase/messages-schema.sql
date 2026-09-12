@@ -31,7 +31,16 @@ CREATE TABLE IF NOT EXISTS public.conversations (
   updated_at timestamptz NOT NULL DEFAULT now(),
   
   -- Ensure unique conversation per listing between two users
-  CONSTRAINT unique_listing_conversation UNIQUE (listing_id, buyer_id, seller_id)
+  CONSTRAINT unique_listing_conversation UNIQUE (listing_id, buyer_id, seller_id),
+  
+  -- Ensure at least one participant is not null and buyer/seller are different
+  CONSTRAINT check_participants CHECK (buyer_id != seller_id),
+  
+  -- For direct messages without listing, ensure uniqueness
+  CONSTRAINT unique_direct_conversation UNIQUE NULLS NOT DISTINCT (
+    CASE WHEN listing_id IS NULL THEN LEAST(buyer_id, seller_id) END,
+    CASE WHEN listing_id IS NULL THEN GREATEST(buyer_id, seller_id) END
+  ) WHERE listing_id IS NULL
 );
 
 -- 2. Messages Table
@@ -259,28 +268,57 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to get or create conversation
+-- Function to get or create conversation (updated for direct messages)
 CREATE OR REPLACE FUNCTION get_or_create_conversation(
-  p_listing_id bigint,
-  p_buyer_id uuid,
-  p_seller_id uuid
+  p_listing_id bigint DEFAULT NULL,
+  p_buyer_id uuid DEFAULT NULL,
+  p_seller_id uuid DEFAULT NULL,
+  p_user1_id uuid DEFAULT NULL,
+  p_user2_id uuid DEFAULT NULL
 )
 RETURNS uuid AS $$
 DECLARE
   v_conversation_id uuid;
+  v_buyer_id uuid;
+  v_seller_id uuid;
 BEGIN
-  -- Try to find existing conversation
-  SELECT id INTO v_conversation_id
-  FROM public.conversations
-  WHERE listing_id = p_listing_id
-    AND buyer_id = p_buyer_id
-    AND seller_id = p_seller_id;
-  
-  -- If not found, create new conversation
-  IF v_conversation_id IS NULL THEN
-    INSERT INTO public.conversations (listing_id, buyer_id, seller_id)
-    VALUES (p_listing_id, p_buyer_id, p_seller_id)
-    RETURNING id INTO v_conversation_id;
+  -- Handle direct message (no listing)
+  IF p_listing_id IS NULL AND p_user1_id IS NOT NULL AND p_user2_id IS NOT NULL THEN
+    -- Normalize user IDs to maintain consistent ordering
+    v_buyer_id := LEAST(p_user1_id, p_user2_id);
+    v_seller_id := GREATEST(p_user1_id, p_user2_id);
+    
+    -- Try to find existing direct conversation
+    SELECT id INTO v_conversation_id
+    FROM public.conversations
+    WHERE listing_id IS NULL
+      AND ((buyer_id = v_buyer_id AND seller_id = v_seller_id)
+           OR (buyer_id = v_seller_id AND seller_id = v_buyer_id));
+    
+    -- If not found, create new direct conversation
+    IF v_conversation_id IS NULL THEN
+      INSERT INTO public.conversations (listing_id, buyer_id, seller_id)
+      VALUES (NULL, v_buyer_id, v_seller_id)
+      RETURNING id INTO v_conversation_id;
+    END IF;
+    
+  -- Handle listing-based conversation
+  ELSIF p_listing_id IS NOT NULL AND p_buyer_id IS NOT NULL AND p_seller_id IS NOT NULL THEN
+    -- Try to find existing conversation
+    SELECT id INTO v_conversation_id
+    FROM public.conversations
+    WHERE listing_id = p_listing_id
+      AND buyer_id = p_buyer_id
+      AND seller_id = p_seller_id;
+    
+    -- If not found, create new conversation
+    IF v_conversation_id IS NULL THEN
+      INSERT INTO public.conversations (listing_id, buyer_id, seller_id)
+      VALUES (p_listing_id, p_buyer_id, p_seller_id)
+      RETURNING id INTO v_conversation_id;
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'Invalid parameters: provide either (listing_id, buyer_id, seller_id) or (user1_id, user2_id)';
   END IF;
   
   RETURN v_conversation_id;

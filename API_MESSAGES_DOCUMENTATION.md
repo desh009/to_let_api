@@ -132,9 +132,11 @@ Authorization: Bearer {token}
 POST /api/messages/conversations
 ```
 
-Create a new conversation or get existing one for a listing.
+Create a new conversation or get existing one. Supports both:
+1. **Property-based conversation** (buyer → seller via listing)
+2. **Direct message** (any user → any user)
 
-#### Request Body
+#### Request Body (Option 1 - Property-based)
 ```json
 {
   "listingId": 456,
@@ -142,10 +144,18 @@ Create a new conversation or get existing one for a listing.
 }
 ```
 
+#### Request Body (Option 2 - Direct Message)
+```json
+{
+  "otherUserId": "user-uuid-789"
+}
+```
+
 #### Response (201 Created)
 ```json
 {
   "success": true,
+  "message": "Listing conversation created/retrieved.",
   "data": {
     "id": "conv-uuid-123",
     "listing_id": 456,
@@ -158,9 +168,26 @@ Create a new conversation or get existing one for a listing.
 }
 ```
 
+**For Direct Message:**
+```json
+{
+  "success": true,
+  "message": "Direct conversation created/retrieved.",
+  "data": {
+    "id": "conv-uuid-456",
+    "listing_id": null,
+    "buyer_id": "user1-uuid",
+    "seller_id": "user2-uuid",
+    "buyer_unread_count": 0,
+    "seller_unread_count": 0,
+    "created_at": "2024-01-15T10:00:00Z"
+  }
+}
+```
+
 #### Error Responses
 ```json
-// 404 - Listing not found
+// 404 - Listing not found (property-based only)
 {
   "error": "Listing not found."
 }
@@ -168,6 +195,11 @@ Create a new conversation or get existing one for a listing.
 // 400 - Cannot message yourself
 {
   "error": "Cannot create conversation with yourself."
+}
+
+// 400 - Invalid request
+{
+  "error": "Invalid request. Provide either listingId + sellerId or otherUserId."
 }
 ```
 
