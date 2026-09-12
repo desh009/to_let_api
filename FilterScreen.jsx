@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 
 // API Base URL - change this to your server URL
-const API_BASE_URL = 'http://localhost:3000/api';
+const API_BASE_URL = 'https://to-let-api.vercel.app/api';
 
 const FilterScreen = ({ navigation, route }) => {
   // Filter state matching the API schema
